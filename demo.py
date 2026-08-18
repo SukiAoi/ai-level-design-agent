@@ -5,6 +5,10 @@
     python demo.py "描述一个关卡..."
 """
 import sys
+from pathlib import Path
+
+# 确保项目根目录在 sys.path（无论从哪个目录运行）
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.graph import app
 from app.state import LevelDesignState
