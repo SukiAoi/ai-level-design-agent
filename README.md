@@ -94,3 +94,4 @@ Streamlit 界面展示：
 - DeepSeek 通过 OpenAI 兼容协议接入（`langchain-openai`）。
 - 检索为轻量关键词打分，启动阶段刻意不引入向量库；详见 `app/rag.py`。
 - 踩坑记录见 [PITFALLS.md](PITFALLS.md)。
+- 面试准备（架构解析 / 知识点 / 高频问题）见 [docs/INTERVIEW_GUIDE.md](docs/INTERVIEW_GUIDE.md)。
