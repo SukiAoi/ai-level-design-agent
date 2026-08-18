@@ -17,3 +17,6 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# 面试指南（仅本地保留，勿推送）
+docs/INTERVIEW_GUIDE.md
