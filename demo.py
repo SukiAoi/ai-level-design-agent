@@ -40,6 +40,18 @@ def main() -> None:
     for i, step in enumerate(result["steps"], 1):
         print(f"  [{i}] {step['node']:<20} → {step['summary']}")
 
+    # 自检结论（回炉信息）
+    retry_count = result.get("retry_count", 0)
+    passed = result.get("self_check_passed", True)
+    print("-" * 60)
+    if passed:
+        if retry_count > 1:
+            print(f"✅ 自检判定：修正后可行（共自检 {retry_count} 次，回炉 {retry_count - 1} 次）")
+        else:
+            print("✅ 自检判定：建议整体可行（无需回炉）")
+    else:
+        print(f"⚠️ 自检判定：仍为需修正，已达回炉上限（{retry_count} 次），按当前建议输出报告")
+
     for key, title in [
         ("difficulty_analysis", "📊 难度曲线分析"),
         ("suggestions", "🛠️ 改关建议"),

@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st
 
-from app.graph import app
+from app.graph import MAX_RETRIES, app
 from app.state import LevelDesignState
 
 st.set_page_config(page_title="AI 关卡设计 Agent", page_icon="🎮", layout="wide")
@@ -21,7 +21,12 @@ st.caption("LangGraph StateGraph 多步推理 · DeepSeek · 读设计文档 →
 
 with st.expander("📐 LangGraph 流程图（Mermaid）", expanded=True):
     st.code(app.get_graph().draw_mermaid(), language="mermaid")
-    st.caption("完整流程链。目前为线性链，后续可加条件分支（如自检不通过时回到建议节点重做）。")
+    st.caption(
+        "完整流程：线性链 + 自检条件分支。"
+        "self_check 判定「需修正」时，携带自检意见回到 generate_suggestions 回炉重做，"
+        "最多回炉 2 次；通过或超限后进入 write_report。"
+        "右侧「本轮执行路径」会高亮本次实际走过的节点。"
+    )
 
 # ---------- 输入 ----------
 level = st.text_area(
@@ -44,9 +49,6 @@ if st.button("🚀 运行 Agent", type="primary"):
                 {"level_description": level}  # type: ignore[arg-type]
             )
 
-        # ---------- 分步可视化 ----------
-        st.subheader("🪜 分步推理过程")
-        steps = result["steps"]
         node_icons = {
             "read_design_doc": "📖",
             "analyze_difficulty": "📊",
@@ -54,6 +56,34 @@ if st.button("🚀 运行 Agent", type="primary"):
             "self_check": "🔍",
             "write_report": "📄",
         }
+        steps = result["steps"]
+
+        # ---------- 本轮执行路径 ----------
+        st.subheader("🛤️ 本轮执行路径")
+        path_display = "  →  ".join(
+            f"{node_icons.get(s['node'], '➡️')} {s['node']}" for s in steps
+        )
+        st.markdown(f"**{path_display}**")
+
+        # ---------- 自检结论徽章 ----------
+        retry_count = int(result.get("retry_count", 0) or 0)
+        passed = bool(result.get("self_check_passed", True))
+        if passed:
+            if retry_count <= 1:
+                st.success(f"✅ 自检判定：**建议整体可行**（自检 {retry_count} 次，无需回炉）")
+            else:
+                st.success(
+                    f"✅ 自检判定：**修正后可行**（共自检 {retry_count} 次，"
+                    f"回炉修正 {retry_count - 1} 次后通过）"
+                )
+        else:
+            st.warning(
+                f"⚠️ 自检判定：**仍为需修正**，已达回炉上限（{MAX_RETRIES} 次），"
+                "按当前版本建议输出报告"
+            )
+
+        # ---------- 分步可视化 ----------
+        st.subheader("🪜 分步推理过程")
         for i, step in enumerate(steps, 1):
             icon = node_icons.get(step["node"], "➡️")
             with st.status(f"{icon} 步骤 {i}：{step['node']} — {step['summary']}", expanded=False):

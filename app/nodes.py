@@ -2,6 +2,8 @@
 
 每个节点返回 dict，LangGraph 会合并进 State；其中 steps 字段为累积追加。
 """
+import re
+
 from .llm import get_llm
 from .rag import retrieve_design_sections
 from .state import LevelDesignState
@@ -44,7 +46,10 @@ SELF_CHECK_PROMPT = (
     "  - 指出建议可能引入的新问题（如难度失衡、挫败感、节奏拖沓）；\n"
     "  - 给出修正意见；\n"
     "  - 最终结论：建议整体是否可行（可行 / 需修正）。\n"
-    "请用中文，分点输出。"
+    "请用中文，分点输出。\n"
+    "最后必须单独输出一行，二选一：\n"
+    "【结论】可行\n"
+    "【结论】需修正"
 )
 
 REPORT_PROMPT = (
@@ -109,14 +114,36 @@ def generate_suggestions(state: LevelDesignState) -> dict:
         f"【关卡描述】\n{state['level_description']}\n\n"
         f"【难度曲线分析】\n{state['difficulty_analysis']}"
     )
+    # 回炉场景：带上上一轮自检意见，要求逐条修正后重新输出
+    prev_check = state.get("self_check", "")
+    is_retry = state.get("retry_count", 0) > 0
+    if is_retry and prev_check:
+        prompt += (
+            "\n\n【上一轮自检意见】（必须逐条回应，修正后重新输出完整建议）\n"
+            f"{prev_check}"
+        )
     suggestions = llm.invoke(prompt).content
+    summary = "LLM 生成改关建议" + ("（按自检意见回炉修正）" if is_retry else "")
     return {
         "suggestions": suggestions,
-        "steps": [_record("generate_suggestions", "suggestions", "LLM 生成改关建议")],
+        "steps": [_record("generate_suggestions", "suggestions", summary)],
     }
 
 
 # ---------- 节点 4：自检合理性 ----------
+
+def _parse_verdict(text: str) -> bool:
+    """从自检文本解析最终判定
+
+    优先解析明确的结论行「【结论】可行/需修正/不可行/不通过」；
+    无结论行时回退全文：含「需修正/不可行/不通过」→ 需修正(False)，否则视为可行(True)。
+    解析失败时默认通过，避免判定异常导致流程卡死。
+    """
+    m = re.search(r"【结论】\s*(可行|需修正|不可行|不通过)", text)
+    if m:
+        return m.group(1) == "可行"
+    return not bool(re.search(r"需修正|不可行|不通过", text))
+
 
 def self_check(state: LevelDesignState) -> dict:
     llm = get_llm()
@@ -126,10 +153,26 @@ def self_check(state: LevelDesignState) -> dict:
         f"【设计文档相关片段】\n{state['design_doc']}\n\n"
         f"【改关建议】\n{state['suggestions']}"
     )
+    # 回炉后的再次自检：聚焦"上一轮核心冲突是否已解决"，避免无限评审
+    if state.get("retry_count", 0) > 0:
+        prompt += (
+            "\n\n（注意：本建议已按你上一轮的自检意见修正过。本次自检请聚焦评估："
+            "上一轮指出的核心冲突是否已解决？\n"
+            "  - 若核心冲突已解决：结论必须写【结论】可行（可保留少量非阻塞优化建议，"
+            "但结论行不得写「需修正」）；\n"
+            "  - 若核心冲突仍未解决：结论写【结论】需修正。）"
+        )
     check = llm.invoke(prompt).content
+    passed = _parse_verdict(check)
+    retry_count = state.get("retry_count", 0) + 1
+    verdict = "✅ 可行" if passed else "🔄 需修正"
     return {
         "self_check": check,
-        "steps": [_record("self_check", "self_check", "LLM 完成建议合理性自检")],
+        "self_check_passed": passed,
+        "retry_count": retry_count,
+        "steps": [
+            _record("self_check", "self_check", f"LLM 完成建议合理性自检，判定：{verdict}")
+        ],
     }
 
 
